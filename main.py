@@ -5,8 +5,19 @@ def data_to_adj_mat(time_series_data):
     pass
 
 
-def page_rank():
-    pass
+def page_rank(adj_mat):
+
+    n = len(adj_mat)
+    r_old = np.repeat(1 / n, n)
+    for t in range(50):
+        r_new = np.repeat(1 / n, n)
+        for page in range(n):
+            for dest in adj_mat[page][1]:
+                idx = dest
+                r_new[idx] += r_old[page] / (adj_mat[page][0])
+        r_new = r_new / np.sum(r_new)
+        r_old = r_new
+    return r_new
 
 
 def graph_part(adj_mat, k, kmeans_iters=50):
