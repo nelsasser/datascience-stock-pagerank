@@ -1,5 +1,37 @@
 import numpy as np
 
+def sharpe(x, r):
+    """Get sharpe ratio for x
+
+    Args:
+        x (numpy.array): array of returns data
+        r (float): risk free rate
+
+    Returns:
+        float: sharpe ratio
+    """
+
+    expected_return = np.mean(x)
+    return_deviation = np.std(x)
+    return (expected_return - r) / return_deviation
+
+def beta(x, y):
+    """Get beta coefficient for x compared against y
+
+    Args:
+        x (np.array): asset returns
+        y (np.array): index returns
+
+    Returns:
+        float: beta coefficient
+    """
+
+    x_mean = np.mean(x)
+    y_mean = np.mean(y)
+    cov = np.sum((x - x_mean) * (y - y_mean)) / (x.shape[0] - 1)
+    var = np.var(x)
+
+    return cov/var
 
 def data_to_adj_mat(time_series_data):
     pass
