@@ -12,9 +12,8 @@ def page_rank(adj_mat):
     for t in range(50):
         r_new = np.repeat(1 / n, n)
         for page in range(n):
-            for dest in adj_mat[page][1]:
-                idx = dest
-                r_new[idx] += r_old[page] / (adj_mat[page][0])
+            for dest in adj_mat[page]:
+                r_new[dest] += r_old[page] / (len(adj_mat[page]))
         r_new = r_new / np.sum(r_new)
         r_old = r_new
     return r_new
