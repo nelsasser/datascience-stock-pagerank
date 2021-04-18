@@ -7,6 +7,7 @@ from tda import auth, client
 
 class TDAPI:
     PeriodType = client.Client.PriceHistory.PeriodType
+    Period = client.Client.PriceHistory.Period
     FrequencyType = client.Client.PriceHistory.FrequencyType
     Frequency = client.Client.PriceHistory.Frequency
 
@@ -18,7 +19,41 @@ class TDAPI:
         self.rate_limiter = []
 
     def load(self, universe):
-        pass
+        a = []
+        for ticker in universe:
+            # rate limit ourselves so we don't get hit with TDA rate limiter which forces us to pause for 1 minute
+            self.calculate_rate_limit()
+
+            self.rate_limiter.append(datetime.datetime.now())
+
+            res = self.tda_client.get_price_history(
+                ticker,
+                period_type=self.PeriodType.YEAR,
+                period=self.Period.TWENTY_YEARS,
+                frequency_type=self.FrequencyType.DAILY,
+                frequency=self.Frequency.DAILY
+            )
+
+            if res.status_code == 200:
+                res = pd.DataFrame(res.json()['candles'])
+                res['ticker'] = ticker
+                if not res.empty:
+                    res['datetime'] = pd.to_datetime(res['datetime'], unit='ms')
+                    res['datetime'] = res['datetime'].dt.date
+            elif res.status_code == 429:
+                print("Rate limiter failed, pausing for 1 minute then trying again.")
+                time.sleep(60)
+                continue
+            else:
+                print(f"Error could not get data for {ticker}: {res.status_code}")
+                res = pd.DataFrame()
+
+            a.append(res)
+
+    
+    self.data = pd.concat(a)
+        
+
 
     def calculate_rate_limit(self, limit=120):
         # get current time
@@ -50,11 +85,6 @@ class TDAPI:
     
     def get_historical_price(self, ticker, start_date, end_date, period_type, frequency_type, frequency):
         while(True):
-            # rate limit ourselves so we don't get hit with TDA rate limiter which forces us to pause for 1 minute
-            self.calculate_rate_limit()
-
-            self.rate_limiter.append(datetime.datetime.now())
-
             res = self.tda_client.get_price_history(
                 ticker,
                 period_type=period_type,

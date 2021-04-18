@@ -36,9 +36,9 @@ class TestClient:
     def load(self, universe):
         d = []
         for file in os.listdir(self.data_path):
-            if file[-5:] == '.json' and file.split('.')[0] in universe:
+            if file[-5:] == '.json' and file[:-5] in universe:
                 df = pd.DataFrame(json.load(open(self.data_path + '/' + file))['candles'])
-                df['ticker'] = file.split('.')[0]
+                df['ticker'] = file[:-5]
                 df['datetime'] = pd.to_datetime(df['datetime'], unit='ms')
                 df['datetime'] = df['datetime'].dt.date
                 d.append(df)
