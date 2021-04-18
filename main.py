@@ -253,6 +253,7 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
 
     # sell current holdings and calculate final PL
     while(check_day(client, trade_date)):
+        print(trade_date)
         trade_date = trade_date - datetime.timedelta(days=1)
         continue
             
@@ -299,7 +300,6 @@ if __name__ == '__main__':
 
         client = TDAPI(api_key=api_key)
         client.login(driver_path=chrome_driver)
-        client.load(universe)
 
         start_date = datetime.datetime.strptime('2010-01-01', '%Y-%m-%d').date()
         end_date = datetime.datetime.strptime('2020-12-31', '%Y-%m-%d').date()
@@ -311,7 +311,6 @@ if __name__ == '__main__':
         universe = set([t.strip() for t in open('./data/tickers.txt').readlines()])
 
         client = TestClient()
-        client.load(universe) # put tickers you don't want to load in here to speed things up
 
         # reduced start and end date times
         start_date = datetime.datetime.strptime('2018-01-1', '%Y-%m-%d').date()
@@ -331,6 +330,7 @@ if __name__ == '__main__':
     # using SPY since it tracks S&P 500 and is popular
     index_asset = 'SPY'
 
+    client.load(universe, index_asset)
     end_bal, positions, returns = backtest( client=client, 
                                             universe=universe,
                                             index_asset=index_asset,
