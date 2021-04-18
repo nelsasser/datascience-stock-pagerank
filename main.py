@@ -271,7 +271,7 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
 
 if __name__ == '__main__':
     # change this to false use test data
-    use_api = True
+    use_api = False
 
     if use_api:
         from api import TDAPI            
@@ -284,6 +284,7 @@ if __name__ == '__main__':
 
         client = TDAPI(api_key=api_key)
         client.login(driver_path=chrome_driver)
+        client.load(universe)
 
         start_date = datetime.datetime.strptime('2010-01-01', '%Y-%m-%d').date()
         end_date = datetime.datetime.strptime('2020-12-31', '%Y-%m-%d').date()
@@ -295,14 +296,14 @@ if __name__ == '__main__':
         universe = set([t.strip() for t in open('./data/tickers.txt').readlines()])
 
         client = TestClient()
-        client.load(fltr=[]) # put tickers you don't want to load in here to speed things up
+        client.load(universe) # put tickers you don't want to load in here to speed things up
 
         # reduced start and end date times
         start_date = datetime.datetime.strptime('2018-01-1', '%Y-%m-%d').date()
         end_date = datetime.datetime.strptime('2018-12-31', '%Y-%m-%d').date()
     
     window = 5                  # look at 5 days at a time
-    select = 100               # number of stocks to randomly choose from universe for each backtest step, set to None to do all
+    select = None               # number of stocks to randomly choose from universe for each backtest step, set to None to do all
     ts = 5                      # how many days to step forward each iteration
     pt = client.PeriodType.YEAR        # period to aggregate (matters for tda api)
     ft = client.FrequencyType.DAILY    # time scale we want to aggregate by

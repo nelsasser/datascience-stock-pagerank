@@ -33,10 +33,10 @@ class TestClient:
         self.data_path = data_path
         self.data = None
 
-    def load(self, fltr=None):
+    def load(self, universe):
         d = []
         for file in os.listdir(self.data_path):
-            if file.endswith('.json') and file.split('.')[0] not in fltr:
+            if file[-5:] == '.json' and file.split('.')[0] in universe:
                 df = pd.DataFrame(json.load(open(self.data_path + '/' + file))['candles'])
                 df['ticker'] = file.split('.')[0]
                 df['datetime'] = pd.to_datetime(df['datetime'], unit='ms')
