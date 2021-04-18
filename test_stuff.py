@@ -27,7 +27,7 @@ if __name__ == '__main__':
         universe = set([t.strip() for t in open('./data/tickers.txt').readlines()])
 
         client = TestClient()
-        client.load(fltr=[])  # put tickers you don't want to load in here to speed things up
+        client.load(universe)  # put tickers you don't want to load in here to speed things up
 
         # reduced start and end date times
         start_date = datetime.datetime.strptime('2018-01-1', '%Y-%m-%d').date()
@@ -57,3 +57,7 @@ if __name__ == '__main__':
                                 frequency=f)
 
     print(res)
+
+    test = data_to_adj_mat(res, True, True, 0)
+
+    print(test)

@@ -2,6 +2,7 @@ import datetime
 import json
 
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
+import statsmodels.tsa.stattools as ts
 from scipy.spatial.distance import squareform, pdist
 
 import pandas as pd
@@ -40,10 +41,21 @@ def beta(x, y):
 
     return cov/var
 
-def data_to_adj_mat(time_series_data, with_sharpe):
-    calc_cov_weight = lambda x, y: coint_johansen(np.array([x, y]).T, 0, 1).max_eig_stat
+def data_to_adj_mat(time_series_data, with_sharpe, cap_zero, r):
+    # calc_cov_weight = lambda x, y: coint_johansen(np.array([x, y]).T, 0, 1).max_eig_stat
+    # ts.coint(time_series_data[0], time_series_data[1])
 
-    return squareform(pdist(time_series_data, calc_cov_weight))  # idk if this works, pdist is for dists
+    corr_mat = np.corrcoef(time_series_data)
+    corr_mat *= np.ones(corr_mat.shape)-np.diag(np.ones(corr_mat.shape[0]))
+
+    if with_sharpe:
+        sharpe_values = np.array([sharpe(ts_data,r) for ts_data in time_series_data])
+        corr_mat *= sharpe_values[:, np.newaxis]
+
+    if cap_zero:
+        corr_mat = np.where(corr_mat >= 0, corr_mat, 0)
+
+    return corr_mat
 
 def page_rank(adj_mat):
     n = len(adj_mat)
@@ -127,7 +139,10 @@ def get_returns_for_all(client, universe, start_date, end_date, window_size, per
         _, ticker_percent_returns = get_returns(ticker_data)
         ticker_returns.append(list(ticker_percent_returns))
 
-    return np.array(ticker_returns)
+    ticker_returns_as_array = np.array(ticker_returns)
+    assert len(ticker_returns_as_array.shape) == 2
+
+    return ticker_returns_as_array
 
 def check_day(client, dt):
     df = client.get_historical_price('SPY', dt, dt, client.PeriodType.YEAR, client.FrequencyType.DAILY, client.Frequency.DAILY)
