@@ -17,6 +17,9 @@ class TDAPI:
         self.tda_client = None
         self.rate_limiter = []
 
+    def load(self, universe):
+        pass
+
     def calculate_rate_limit(self, limit=120):
         # get current time
         cur_time = datetime.datetime.now()
