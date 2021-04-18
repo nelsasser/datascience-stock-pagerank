@@ -113,7 +113,7 @@ def check_day(client, dt):
     df = client.get_historical_price('SPY', dt, dt, client.PeriodType.YEAR, client.FrequencyType.DAILY, client.Frequency.DAILY)
     return df.empty
 
-def backtest(client, universe, index_asset, selection_size, start_date, end_date, window_size, timestep, heuristic, period_type, frequency_type, frequency):
+def backtest(client, universe, index_asset, selection_size, start_date, end_date, window_size, timestep, heuristic, period_type, frequency_type, frequency, alpha):
     # big main idea is to avoid looking into the future
     # for each trade date we buy using the close price and sell using open price
     # for calculating metrics we need to be sure we ONLY USE THE OPEN value of the trade date. 
@@ -161,7 +161,12 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
             for pos_tck, pos_val, pos_vol, pos_dir in current_positions:
                 # get tickers open price for today
                 pos_data = pl_data[(pl_data['ticker'] == pos_tck) & (pl_data['datetime'] == trade_date)]
-                pos_opn = pos_data['open'].values[0]
+                pos_opn = pos_data['open'].values
+
+                if len(pos_opn) == 0:
+                    pos_opn = 0.0
+                else:
+                    pos_opn = pos_opn[0]
 
                 # update the position open and close in the position history
                 position_history.append([(pos_tck, pos_val, pos_vol, pos_dir), (pos_tck, pos_opn, pos_vol, pos_dir)])
@@ -198,14 +203,23 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
         tickers, weights = [t[0] for t in top_tickers], np.array([t[1] for t in top_tickers]) / np.sum([t[1] for t in top_tickers])
 
         # allocate all of our capital to these stocks
-        weights = weights * balance
+        weights = weights * balance * alpha
         weights[np.where(np.isnan(weights))] = 0
 
         closing_prices = current_data[current_data['datetime'] == trade_date][['ticker', 'close']]
         for i, ticker in enumerate(tickers):
             price = closing_prices[closing_prices['ticker'] == ticker]['close'].values
-            vol = weights[i] / price[0]
-            current_positions.append((ticker, price[0], vol, np.sign(weights)[i]))
+
+            if len(price) == 0:
+                vol = 0.0
+                price = 0.0
+                direction = 0.0
+            else:
+                price = price[0]
+                vol = weights[i] / price
+                direction = np.sign(weights)[i]
+                
+            current_positions.append((ticker, price, vol, direction))
 
         # 4) calculate heuristics and construct M
         # 5) run pagerank power iteration to get r
@@ -218,7 +232,6 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
 
     # sell current holdings and calculate final PL
     while(check_day(client, trade_date)):
-        print(trade_date)
         trade_date = trade_date - datetime.timedelta(days=1)
         continue
             
@@ -252,7 +265,7 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
 
 if __name__ == '__main__':
     # change this to false use test data
-    use_api = False
+    use_api = True
 
     if use_api:
         from api import TDAPI            
@@ -262,11 +275,12 @@ if __name__ == '__main__':
 
         # all S&P 500 tickers (as of april 2021)
         universe = set([t.strip() for t in open('./tickers.txt').readlines()])
+        universe = list(universe)[:100]
 
         client = TDAPI(api_key=api_key)
         client.login(driver_path=chrome_driver)
 
-        start_date = datetime.datetime.strptime('2010-01-01', '%Y-%m-%d').date()
+        start_date = datetime.datetime.strptime('2018-01-01', '%Y-%m-%d').date()
         end_date = datetime.datetime.strptime('2020-12-31', '%Y-%m-%d').date()
 
     else:
@@ -287,9 +301,11 @@ if __name__ == '__main__':
     pt = client.PeriodType.YEAR        # period to aggregate (matters for tda api)
     ft = client.FrequencyType.DAILY    # time scale we want to aggregate by
     f = client.Frequency.DAILY         # how much to aggregate
+    alpha = 0.01                        # controls how much of our balance we allocate per timeframe
+
 
     # basic heuristic function, calculates sharpe of x against y with a floor of 0 so everything stays positive
-    h_func = lambda x, y: sharpe(x, y)
+    h_func = lambda x, y: max(0, sharpe(x, y))
 
     # asset to use as index when calculating metrics
     # using SPY since it tracks S&P 500 and is popular
@@ -307,11 +323,16 @@ if __name__ == '__main__':
                                             heuristic=h_func, 
                                             period_type=pt, 
                                             frequency_type=ft, 
-                                            frequency=f)
+                                            frequency=f,
+                                            alpha=alpha)
 
     import matplotlib.pyplot as plt
     x = np.arange(len(returns))
     returns = np.array(returns)
     returns[np.where(np.isnan(returns))] = 0
     plt.plot(x, returns)
+    plt.show()
+
+    cum_returns = np.cumsum(returns)
+    plt.plot(x, cum_returns)
     plt.show()

@@ -16,15 +16,17 @@ class TDAPI:
         self.api_key = api_key
         self.redirect_uri = redirect_uri
         self.tda_client = None
-        self.rate_limiter = []
+        self.last_call = None
+        # self.rate_limiter = []
 
     def load(self, universe, index_asset):
         d = []
-        for ticker in universe + [index_asset, ]:
+        for i, ticker in enumerate(universe):
+            print(f'{i}/{len(universe)} done.')
             # rate limit ourselves so we don't get hit with TDA rate limiter which forces us to pause for 1 minute
-            self.calculate_rate_limit()
+            self.rate_limit()
 
-            self.rate_limiter.append(datetime.datetime.now())
+            # self.rate_limiter.append(datetime.datetime.now())
 
             res = self.tda_client.get_price_history(
                 ticker,
@@ -50,27 +52,67 @@ class TDAPI:
 
             d.append(res)
         
+        while(True):
+            # rate limit ourselves so we don't get hit with TDA rate limiter which forces us to pause for 1 minute
+            self.rate_limit()
+            res = self.tda_client.get_price_history(
+                index_asset,
+                period_type=self.PeriodType.YEAR,
+                period=self.Period.TWENTY_YEARS,
+                frequency_type=self.FrequencyType.DAILY,
+                frequency=self.Frequency.DAILY
+            )
+
+            if res.status_code == 200:
+                res = pd.DataFrame(res.json()['candles'])
+                res['ticker'] = index_asset
+                if not res.empty:
+                    res['datetime'] = pd.to_datetime(res['datetime'], unit='ms')
+                    res['datetime'] = res['datetime'].dt.date
+                break
+            elif res.status_code == 429:
+                print("Rate limiter failed, pausing for 1 minute then trying again.")
+                time.sleep(60)
+                continue
+            else:
+                print(f"Error could not get data for {ticker}: {res.status_code}")
+                res = pd.DataFrame()
+                break
+
+        d.append(res)
         self.data = pd.concat(d)
         
-    def calculate_rate_limit(self, limit=120):
-        # get current time
-        cur_time = datetime.datetime.now()
-
-        # get rid of all calls that were more than 1 minute ago
-        self.rate_limiter = list(filter(lambda x: (cur_time - x).total_seconds() / 60.0 < 1, self.rate_limiter))
-        
-        # number of available calls that we can make in the current elapsed
-        available = limit - len(self.rate_limiter)
-
-        if available:
-            return
+    def rate_limit(self, limit=120):
+        min_time = 0.05 # basically error, get this as close to 0 as possible to not hit rate limiter since 0 sometimes still triggers it
+        # per-call delay
+        pcd = 60 / limit
+        if self.last_call is None:
+            wait_time = min_time
         else:
-            # sleep until room in queue
-            # gets the length of the current elapsed minute and waits until it has finished
-            t = 60 - (cur_time - self.rate_limiter[0]).total_seconds()/60
-            print(f'Self waiting for {t} seconds')
-            time.sleep(t)
-            return
+            wait_time = max(pcd - (time.time() - self.last_call), min_time) # (time we must wait) - (time we've already waited)
+
+        print(f'Waiting {wait_time} sec')
+        time.sleep(wait_time)
+        self.last_call = time.time()
+
+        # # get current time
+        # cur_time = datetime.datetime.now()
+
+        # # get rid of all calls that were more than 1 minute ago
+        # self.rate_limiter = list(filter(lambda x: (cur_time - x).total_seconds() / 60.0 < 1, self.rate_limiter))
+        
+        # # number of available calls that we can make in the current elapsed
+        # available = limit - len(self.rate_limiter)
+
+        # if available:
+        #     return
+        # else:
+        #     # sleep until room in queue
+        #     # gets the length of the current elapsed minute and waits until it has finished
+        #     t = 60 - (cur_time - self.rate_limiter[0]).total_seconds()/60
+        #     print(f'Self waiting for {t} seconds')
+        #     time.sleep(t)
+        #     return
 
     def login(self, driver_path):
         try:
