@@ -1,6 +1,9 @@
 import datetime
 import json
 
+from statsmodels.tsa.vector_ar.vecm import coint_johansen
+from scipy.spatial.distance import squareform, pdist
+
 import pandas as pd
 import numpy as np
 
@@ -37,8 +40,10 @@ def beta(x, y):
 
     return cov/var
 
-def data_to_adj_mat(time_series_data):
-    pass
+def data_to_adj_mat(time_series_data, with_sharpe):
+    calc_cov_weight = lambda x, y: coint_johansen(np.array([x, y]).T, 0, 1).max_eig_stat
+
+    return squareform(pdist(time_series_data, calc_cov_weight))  # idk if this works, pdist is for dists
 
 def page_rank(adj_mat):
     n = len(adj_mat)
@@ -109,6 +114,21 @@ def get_returns(asset_data):
 
     return asset_price_returns, asset_percent_returns
 
+def get_returns_for_all(client, universe, start_date, end_date, window_size, period_type, frequency_type, frequency):
+    previous_trade_date = None
+    trade_date = start_date
+    lookback_date = trade_date - datetime.timedelta(days=window_size)
+
+    current_data = get_ticker_data(client, universe, lookback_date, trade_date, period_type, frequency_type, frequency)
+
+    ticker_returns = []
+    for ticker in universe:
+        ticker_data = current_data[current_data['ticker'] == ticker]
+        _, ticker_percent_returns = get_returns(ticker_data)
+        ticker_returns.append(list(ticker_percent_returns))
+
+    return np.array(ticker_returns)
+
 def check_day(client, dt):
     df = client.get_historical_price('SPY', dt, dt, client.PeriodType.YEAR, client.FrequencyType.DAILY, client.Frequency.DAILY)
     return df.empty
@@ -175,7 +195,7 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
         current_positions = []
 
         current_tickers = universe if selection_size is None else np.random.choice(list(universe), size=selection_size, replace=False)
-        
+
         # 2) aggregate data
         current_data = get_ticker_data(client, current_tickers, lookback_date, trade_date, period_type, frequency_type, frequency)
 
