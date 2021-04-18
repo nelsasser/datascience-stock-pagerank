@@ -18,9 +18,9 @@ class TDAPI:
         self.tda_client = None
         self.rate_limiter = []
 
-    def load(self, universe):
-        a = []
-        for ticker in universe:
+    def load(self, universe, index_asset):
+        d = []
+        for ticker in universe + [index_asset, ]:
             # rate limit ourselves so we don't get hit with TDA rate limiter which forces us to pause for 1 minute
             self.calculate_rate_limit()
 
@@ -48,13 +48,10 @@ class TDAPI:
                 print(f"Error could not get data for {ticker}: {res.status_code}")
                 res = pd.DataFrame()
 
-            a.append(res)
-
-    
-    self.data = pd.concat(a)
+            d.append(res)
         
-
-
+        self.data = pd.concat(d)
+        
     def calculate_rate_limit(self, limit=120):
         # get current time
         cur_time = datetime.datetime.now()
@@ -84,29 +81,11 @@ class TDAPI:
             self.tda_client = auth.client_from_login_flow(driver, self.api_key, self.redirect_uri, self.token_path)
     
     def get_historical_price(self, ticker, start_date, end_date, period_type, frequency_type, frequency):
-        while(True):
-            res = self.tda_client.get_price_history(
-                ticker,
-                period_type=period_type,
-                frequency_type=frequency_type,
-                frequency=frequency,
-                start_datetime=datetime.datetime.combine(start_date, datetime.datetime.min.time()),
-                end_datetime=datetime.datetime.combine(end_date, datetime.datetime.min.time())
-            )
+        # filter:
+        # tickers equal AND
+        # start_date <= datetime <= end_date
+        res = self.data[(self.data['ticker'] == ticker) & 
+                        (self.data['datetime'] <= end_date) & 
+                        (self.data['datetime'] >= start_date)].copy()
 
-            if res.status_code == 200:
-                res = pd.DataFrame(res.json()['candles'])
-                res['ticker'] = ticker
-                if res.empty:
-                    return res
-                res['datetime'] = pd.to_datetime(res['datetime'], unit='ms')
-                res['datetime'] = res['datetime'].dt.date
-            elif res.status_code == 429:
-                print("Rate limiter failed, pausing for 1 minute then trying again.")
-                time.sleep(60)
-                continue
-            else:
-                print(f"Error could not get data for {ticker} for {start_date} - {end_date}: {res.status_code}")
-                res = None
-            
-            return res
+        return res

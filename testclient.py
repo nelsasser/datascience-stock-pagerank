@@ -33,10 +33,10 @@ class TestClient:
         self.data_path = data_path
         self.data = None
 
-    def load(self, universe):
+    def load(self, universe, index_asset):
         d = []
         for file in os.listdir(self.data_path):
-            if file[-5:] == '.json' and file[:-5] in universe:
+            if file[-5:] == '.json' and (file[:-5] in universe or file[:-5] == index_asset):
                 df = pd.DataFrame(json.load(open(self.data_path + '/' + file))['candles'])
                 df['ticker'] = file[:-5]
                 df['datetime'] = pd.to_datetime(df['datetime'], unit='ms')
@@ -52,6 +52,4 @@ class TestClient:
                         (self.data['datetime'] <= end_date) & 
                         (self.data['datetime'] >= start_date)].copy()
         
-
-        # Not doing aggregates b/c I don't think we need them. Especially b/c I don't feel like doing them
-        return res.copy()
+        return res
