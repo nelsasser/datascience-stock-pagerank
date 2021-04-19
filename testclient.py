@@ -34,6 +34,8 @@ class TestClient:
         self.data = None
 
     def load(self, universe, index_asset):
+        print("Loading data for backtest")
+
         d = []
         for file in os.listdir(self.data_path):
             if file[-5:] == '.json' and (file[:-5] in universe or file[:-5] == index_asset):
@@ -45,11 +47,19 @@ class TestClient:
         self.data = pd.concat(d)
     
     def get_historical_price(self, ticker, start_date, end_date, period_type, frequency_type, frequency):
-        # filter:
-        # tickers equal AND
-        # start_date <= datetime <= end_date
-        res = self.data[(self.data['ticker'] == ticker) & 
-                        (self.data['datetime'] <= end_date) & 
-                        (self.data['datetime'] >= start_date)].copy()
+        if type(ticker) is list:
+            # filter:
+            # tickers equal AND
+            # start_date <= datetime <= end_date
+            res = self.data[(self.data['ticker'].isin(ticker)) & 
+                            (self.data['datetime'] <= end_date) & 
+                            (self.data['datetime'] >= start_date)].copy()
+        else:
+            # filter:
+            # tickers equal AND
+            # start_date <= datetime <= end_date
+            res = self.data[(self.data['ticker'] == ticker) & 
+                            (self.data['datetime'] <= end_date) & 
+                            (self.data['datetime'] >= start_date)].copy()
         
         return res

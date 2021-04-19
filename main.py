@@ -18,9 +18,13 @@ def sharpe(x, r):
     Returns:
         float: sharpe ratio
     """
+    if len(x.shape) == 1:
+        expected_return = np.mean(x)
+        return_deviation = np.std(x)
+    else:
+        expected_return = np.mean(x)
+        return_deviation = np.std(x)
 
-    expected_return = np.mean(x)
-    return_deviation = np.std(x)
     return (expected_return - r) / return_deviation
 
 def beta(x, y):
@@ -106,23 +110,13 @@ def graph_part(adj_mat, k, kmeans_iters=50):
 
     return classes
 
-def get_ticker_data(client, tickers, start, end, pt, ft, f):
-    a = []
-    for ticker in tickers:
-        a.append(client.get_historical_price(
-            ticker=ticker,
-            start_date=start,
-            end_date=end,
-            period_type=pt,
-            frequency_type=ft,
-            frequency=f
-        ))
-    
-    return pd.concat(a)
-
-def get_returns(asset_data):
-    asset_price_returns = asset_data[['open', 'close']].stack().diff()
-    asset_percent_returns = (asset_price_returns / asset_data[['open', 'close']].stack().shift()).dropna()[:-1]
+def get_returns(asset_data, close_only=False):
+    if close_only:
+        reordered_data = asset_data[['close', 'datetime', 'ticker']].set_index(['ticker', 'datetime']).stack().unstack(level=0)
+    else:
+        reordered_data = asset_data[['open', 'close', 'datetime', 'ticker']].set_index(['ticker', 'datetime']).stack().unstack(level=0)
+    asset_price_returns = reordered_data.diff()
+    asset_percent_returns = (asset_price_returns / reordered_data.shift()).dropna()[:-1]
 
     return asset_price_returns, asset_percent_returns
 
@@ -168,93 +162,105 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
     while(trade_date <= end_date):
         if check_day(client, trade_date):
             if len(daily_returns):
-                daily_returns.append(daily_returns[-1])
+                daily_returns.append((trade_date, 0.0))
             trade_date = trade_date + datetime.timedelta(days=1)
             continue
             
         # 1) Calculate daily profit and loss since last trade date, update current positions and position history
         if previous_trade_date is not None:
             print(trade_date, end=' ')
-            print("Current positions", current_positions)   
-            pl_data = get_ticker_data(client, [cp[0] for cp in current_positions], previous_trade_date, trade_date, period_type, frequency_type, frequency)
+            if len(current_positions) == 0:
+                print("Current positions NONE")
+                for dt in range((trade_date - previous_trade_date).days):
+                    daily_returns.append((trade_date + datetime.timedelta(days=dt), 0.0))
+            else:
+                print("Current positions", len(current_positions))   
+                pl_data = client.get_historical_price(ticker=[cp[0] for cp in current_positions], 
+                                                      start_date=previous_trade_date, 
+                                                      end_date=trade_date, 
+                                                      period_type=period_type, 
+                                                      frequency_type=frequency_type, 
+                                                      frequency=frequency)
 
-            # go through day by day for each stock
-            # get the close position for that day, daily pnl for that stock is ([close] - [position open]) * [position volume]
-            # pretty sure I am calculating this wrong / there is an easier way to do it with pandas though
-            for dt in range((trade_date - previous_trade_date).days):
-                daily_pnl = 0
+                # go through day by day for each stock
+                # get the close position for that day, daily pnl for that stock is ([close] - [position open]) * [position volume]
+                current_tickers = [c[0] for c in current_positions]
+                filtered_pl = pl_data[  (pl_data['ticker'].isin(current_tickers)) & \
+                                        (pl_data['datetime'] < trade_date) & \
+                                        (pl_data['datetime'] >= previous_trade_date)]
+
+                cp_dct = {x[0]: (x[1], x[2] * x[3]) for x in current_positions}
+                pnl = (filtered_pl['close'] - filtered_pl['ticker'].map(lambda x: cp_dct[x][0])) * filtered_pl['ticker'].map(lambda x: cp_dct[x][1])
+                pnl.index = filtered_pl['datetime'].copy()
+                daily_pnl = pnl.groupby('datetime').sum().to_frame('pnl')
+                    
+                balance += np.sum(daily_pnl['pnl'].to_numpy())
+                rec = daily_pnl.reset_index().to_records(index=False)
+                daily_returns += list(rec)
+
+                # go through and update current positions and position history
+                # print('Closing:', end=' ')
                 for pos_tck, pos_val, pos_vol, pos_dir in current_positions:
-                    filtered = pl_data[ (pl_data['ticker'] == pos_tck) & 
-                                        (pl_data['datetime'] == (previous_trade_date + datetime.timedelta(days=dt)))]
-                    daily_pnl += np.sum(filtered['close'] - pos_val) * pos_vol * pos_dir
-                
-                balance += daily_pnl
-                daily_returns.append(daily_pnl)
+                    # get tickers open price for today
+                    pos_data = pl_data[(pl_data['ticker'] == pos_tck) & (pl_data['datetime'] == trade_date)]
+                    pos_opn = pos_data['open'].values
 
-            # go through and update current positions and position history
-            print('Closing:', end=' ')
-            for pos_tck, pos_val, pos_vol, pos_dir in current_positions:
-                # get tickers open price for today
-                pos_data = pl_data[(pl_data['ticker'] == pos_tck) & (pl_data['datetime'] == trade_date)]
-                pos_opn = pos_data['open'].values
+                    if len(pos_opn) == 0:
+                        pos_opn = 0.0
+                    else:
+                        pos_opn = pos_opn[0]
 
-                if len(pos_opn) == 0:
-                    pos_opn = 0.0
-                else:
-                    pos_opn = pos_opn[0]
+                    # update the position open and close in the position history
+                    position_history.append([(pos_tck, pos_val, pos_vol, pos_dir), (pos_tck, pos_opn, pos_vol, pos_dir)])
 
-                # update the position open and close in the position history
-                position_history.append([(pos_tck, pos_val, pos_vol, pos_dir), (pos_tck, pos_opn, pos_vol, pos_dir)])
+                    # print((pos_tck, pos_opn, pos_vol, pos_dir), end=', ')
 
-                print((pos_tck, pos_opn, pos_vol, pos_dir), end=', ')
-
-            print('')
+                # print('')
             print('Balance', balance)
         
         # closed all current positions
         current_positions = []
 
-        current_tickers = universe if selection_size is None else np.random.choice(list(universe), size=selection_size, replace=False)
+        current_tickers = list(universe) if selection_size is None else list(np.random.choice(list(universe), size=selection_size, replace=False))
 
         # 2) aggregate data
-        current_data = get_ticker_data(client, current_tickers, lookback_date, trade_date, period_type, frequency_type, frequency)
+        current_data = client.get_historical_price(ticker=current_tickers + [index_asset], 
+                                                   start_date=lookback_date, 
+                                                   end_date=trade_date, 
+                                                   period_type=period_type, 
+                                                   frequency_type=frequency_type, 
+                                                   frequency=frequency)
 
-        index_data = get_ticker_data(client, (index_asset, ), lookback_date, trade_date, period_type, frequency_type, frequency)
-        _, index_percent_returns = get_returns(index_data)
+        _, ticker_returns = get_returns(current_data)
+        avg_index_returns = np.mean(ticker_returns[index_asset])
 
-        # for now pick the 10 stocks with highest heuristic
-        tickers = []
-        for ticker in current_tickers:
-            ticker_data = current_data[current_data['ticker'] == ticker]
-            _, ticker_percent_returns = get_returns(ticker_data)
+        # is it sacreligious to make the average return of a stock the risk free rate?
+        ticker_scores = heuristic(ticker_returns, 0.0)
 
-            # is it sacreligious to make the average return of a stock the risk free rate?
-            ticker_score = heuristic(ticker_percent_returns, np.mean(index_percent_returns))
-
-            tickers.append((ticker, ticker_score))
-        
-        tickers.sort(key=lambda x: abs(x[1]) if not np.isnan(x[1]) else 0.0, reverse=True)
-        top_tickers = tickers[:10]
-        tickers, weights = [t[0] for t in top_tickers], np.array([t[1] for t in top_tickers]) / np.sum([t[1] for t in top_tickers])
+        select_ticker_indexes = (ticker_scores > 0.5) | (ticker_scores < -0.75)
+        select_ticker_weights = ticker_scores[select_ticker_indexes] / np.sum(ticker_scores[select_ticker_indexes])
+        if len(select_ticker_weights) > 0:
+            assert(abs(1 - np.sum(select_ticker_weights)) < 1e-6)
 
         # allocate all of our capital to these stocks
-        weights = weights * balance * alpha
-        weights[np.where(np.isnan(weights))] = 0
+        weights = select_ticker_weights * balance * alpha
 
         closing_prices = current_data[current_data['datetime'] == trade_date][['ticker', 'close']]
-        for i, ticker in enumerate(tickers):
+        for ticker in select_ticker_indexes.index[select_ticker_indexes]:
+            # ticker = ticker_data.columns[select_ticker_indexes[i]]
             price = closing_prices[closing_prices['ticker'] == ticker]['close'].values
 
             if len(price) == 0:
-                vol = 0.0
-                price = 0.0
-                direction = 0.0
-            else:
-                price = price[0]
-                vol = weights[i] / price
-                direction = np.sign(weights)[i]
-                
-            current_positions.append((ticker, price, vol, direction))
+                continue
+
+            price = price[0]
+            vol = weights[ticker] / price
+            direction = np.sign(weights)[ticker]
+
+            if abs(vol) < 1e-3:
+                continue
+
+            current_positions.append((ticker, price, abs(vol), direction))
 
         # 4) calculate heuristics and construct M
         # 5) run pagerank power iteration to get r
@@ -269,30 +275,42 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
     while(check_day(client, trade_date)):
         trade_date = trade_date - datetime.timedelta(days=1)
         continue
-            
-    pl_data = get_ticker_data(client, [cp[0] for cp in current_positions], previous_trade_date, trade_date, period_type, frequency_type, frequency)
 
-    # go through day by day for each stock
-    # get the close position for that day, daily pnl for that stock is ([close] - [position open]) * [position volume]
-    # pretty sure I am calculating this wrong / there is an easier way to do it with pandas though
-    for dt in range((trade_date - previous_trade_date).days + 1):
-        daily_pnl = 0
-        for pos_tck, pos_val, pos_vol, pos_dir in current_positions:
-            filtered = pl_data[ (pl_data['ticker'] == pos_tck) & 
-                                (pl_data['datetime'] == (previous_trade_date + datetime.timedelta(days=dt)))]
-            daily_pnl += np.sum(filtered['close'] - pos_val) * pos_vol
+    if len(current_positions) == 0:
+        print("Current positions NONE")
+        for dt in range((trade_date - previous_trade_date).days):
+            daily_returns.append((trade_date + datetime.timedelta(days=dt), 0.0))
+    else:    
+        pl_data = client.get_historical_price(ticker=[cp[0] for cp in current_positions], 
+                                              start_date=previous_trade_date, 
+                                              end_date=trade_date, 
+                                              period_type=period_type, 
+                                              frequency_type=frequency_type, 
+                                              frequency=frequency)
+
+        # go through day by day for each stock
+        # get the close position for that day, daily pnl for that stock is ([close] - [position open]) * [position volume]
+        # pretty sure I am calculating this wrong / there is an easier way to do it with pandas though
+        filtered_pl = pl_data[  (pl_data['ticker'].isin([c[0] for c in current_positions])) & \
+                                (pl_data['datetime'] < trade_date) & \
+                                (pl_data['datetime'] >= previous_trade_date)]
+
+        cp_dct = {x[0]: (x[1], x[2] * x[3]) for x in current_positions}
+        pnl = (filtered_pl['close'] - filtered_pl['ticker'].map(lambda x: cp_dct[x][0])) * filtered_pl['ticker'].map(lambda x: cp_dct[x][1])
+        pnl.index = filtered_pl['datetime']
+        daily_pnl = pnl.groupby('datetime').sum().to_frame('pnl')
         
-        balance += daily_pnl
-        daily_returns.append(daily_pnl)
+        balance += np.sum(daily_pnl['pnl'].to_numpy())
+        daily_returns += list(daily_pnl.reset_index().to_records(index=False))
 
-    # go through and update current positions and position history
-    for pos_tck, pos_val, pos_vol, pos_dir in current_positions:
-        # get tickers open price for today
-        pos_data = pl_data[(pl_data['ticker'] == pos_tck) & (pl_data['datetime'] == trade_date)]
-        pos_opn = pos_data['open'].values[0]
+        # go through and update current positions and position history
+        for pos_tck, pos_val, pos_vol, pos_dir in current_positions:
+            # get tickers open price for today
+            pos_data = pl_data[(pl_data['ticker'] == pos_tck) & (pl_data['datetime'] == trade_date)]
+            pos_opn = pos_data['open'].values[0]
 
-        # update the position open and close in the position history
-        position_history.append([(pos_tck, pos_val, pos_vol, pos_dir), (pos_tck, pos_opn, pos_vol, pos_dir)])
+            # update the position open and close in the position history
+            position_history.append([(pos_tck, pos_val, pos_vol, pos_dir), (pos_tck, pos_opn, pos_vol, pos_dir)])
 
     return balance, position_history, daily_returns
     # from balance_history calculate the sharpe, beta, etc whatever metrics we want to use against our index
@@ -300,7 +318,7 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
 
 if __name__ == '__main__':
     # change this to false use test data
-    use_api = True
+    use_api = False
 
     if use_api:
         from api import TDAPI            
@@ -310,12 +328,12 @@ if __name__ == '__main__':
 
         # all S&P 500 tickers (as of april 2021)
         universe = set([t.strip() for t in open('./tickers.txt').readlines()])
-        universe = list(universe)[:100]
+        universe = list(universe)
 
         client = TDAPI(api_key=api_key)
         client.login(driver_path=chrome_driver)
 
-        start_date = datetime.datetime.strptime('2018-01-01', '%Y-%m-%d').date()
+        start_date = datetime.datetime.strptime('2020-01-01', '%Y-%m-%d').date()
         end_date = datetime.datetime.strptime('2020-12-31', '%Y-%m-%d').date()
 
     else:
@@ -330,24 +348,25 @@ if __name__ == '__main__':
         start_date = datetime.datetime.strptime('2018-01-1', '%Y-%m-%d').date()
         end_date = datetime.datetime.strptime('2018-12-31', '%Y-%m-%d').date()
     
-    window = 5                  # look at 5 days at a time
-    select = None               # number of stocks to randomly choose from universe for each backtest step, set to None to do all
-    ts = 5                      # how many days to step forward each iteration
-    pt = client.PeriodType.YEAR        # period to aggregate (matters for tda api)
-    ft = client.FrequencyType.DAILY    # time scale we want to aggregate by
-    f = client.Frequency.DAILY         # how much to aggregate
-    alpha = 0.01                        # controls how much of our balance we allocate per timeframe
-
+    window = 5                          # look at 5 days at a time
+    select = None                       # number of stocks to randomly choose from universe for each backtest step, set to None to do all
+    ts = 5                              # how many days to step forward each iteration
+    pt = client.PeriodType.YEAR         # period to aggregate (matters for tda api)
+    ft = client.FrequencyType.DAILY     # time scale we want to aggregate by
+    f = client.Frequency.DAILY          # how much to aggregate
+    alpha = 0.1                         # controls how much of our balance we allocate per timeframe
 
     # basic heuristic function, calculates sharpe of x against y with a floor of 0 so everything stays positive
-    h_func = lambda x, y: max(0, sharpe(x, y))
+    # h_func = lambda x, y: max(0, sharpe(x, y))
+    h_func = lambda x, y: sharpe(x, y)
 
     # asset to use as index when calculating metrics
     # using SPY since it tracks S&P 500 and is popular
     index_asset = 'SPY'
 
     client.load(universe, index_asset)
-    end_bal, positions, returns = backtest( client=client, 
+    print('Starting backtest')
+    end_bal, positions, daily_returns = backtest( client=client, 
                                             universe=universe,
                                             index_asset=index_asset,
                                             selection_size=select, 
@@ -362,12 +381,79 @@ if __name__ == '__main__':
                                             alpha=alpha)
 
     import matplotlib.pyplot as plt
+
+    daily_returns = pd.DataFrame.from_records(daily_returns, columns=['datetime', 'returns'])
+    daily_returns['datetime'] = pd.to_datetime(daily_returns['datetime']).dt.date
+    daily_returns = daily_returns.groupby(by='datetime').mean()
+
+    returns = daily_returns['returns'].to_numpy()
+    days = list(daily_returns.index)
+
     x = np.arange(len(returns))
     returns = np.array(returns)
     returns[np.where(np.isnan(returns))] = 0
-    plt.plot(x, returns)
-    plt.show()
 
-    cum_returns = np.cumsum(returns)
-    plt.plot(x, cum_returns)
+    p_returns = returns / 1_000_000
+
+    index_returns = get_returns(client.data[(client.data['ticker'] == index_asset) & \
+                                                        (client.data['datetime'] >= days[0]) & \
+                                                        (client.data['datetime'] <= days[-1] + datetime.timedelta(days=1))][['ticker', 'datetime', 'close']], True)[1][1:]
+    index_returns = index_returns.reset_index().drop(columns='level_1')
+    index_returns['datetime'] = index_returns['datetime'].dt.date
+    index_returns = index_returns.set_index('datetime', drop=True)
+
+    daily_returns['returns'] = p_returns
+    compare_returns = daily_returns.join(index_returns, how='inner', on='datetime')
+
+    wins = []
+    losses = []
+    shorts = []
+    longs = []
+    for trade in positions:
+        trade_open, trade_close = trade[0], trade[1]
+
+        if trade_open[1] < trade_close[1]:
+            if trade_open[3] == 1:
+                wins.append(trade)
+                longs.append((1, trade))
+            else:
+                losses.append(trade)
+                shorts.append((0, trade))
+        elif trade_open[1] > trade_close[1]:
+            if trade_open[3] == -1:
+                wins.append(trade)
+                shorts.append((1, trade))
+            else:
+                losses.append(trade)
+                longs.append((0, trade))
+
+    print(f'\n\nWin %: {round((len(wins) / (len(wins) + len(losses))) * 100, 2)}% --- {len(wins)}/{len(losses)}/{len(wins+losses)}')
+    print('Top 5 losses:')
+    losses.sort(key=lambda x: (x[1][1] - x[0][1]) * x[0][2] * x[0][3])
+    for i in range(5):
+        print(f'  {i + 1}) {losses[i][0][0]} - {losses[i][0][1]} > {losses[i][1][1]} @ {losses[i][0][2]} = {(losses[i][1][1] - losses[i][0][1]) * losses[i][0][2] * losses[i][0][3]}')
+    
+    print(f'Long/Short ratio {round(len(longs) / len(shorts), 2)} -- {len(longs)}/{len(shorts)}')
+    print(f'Long win %: {round(np.sum([l[0] == 1 for l in longs]) / len(longs), 2) * 100}%')
+    print(f'Short win %: {round(np.sum([s[0] == 1 for s in shorts]) / len(shorts), 2) * 100}%')
+    
+    shrp = sharpe(compare_returns['returns'].to_numpy(), np.mean(compare_returns[index_asset].to_numpy()))
+    print(f'\nSharpe: {shrp}')
+
+    B = beta(compare_returns['returns'].to_numpy(), compare_returns[index_asset].to_numpy())
+    print(f'\nBeta: {B}')
+
+    fig, axes = plt.subplots(1, 3)
+    axes[0].plot(x, returns)
+    axes[0].set_title('Daily Returns over Time')
+    
+    axes[1].hist(returns)
+    axes[1].set_title('Histogram of Daily Returns')
+    
+    compare_returns['returns'] = np.cumsum(compare_returns['returns'])
+    compare_returns[index_asset] = np.cumsum(compare_returns[index_asset])
+    compare_returns.plot(ax=axes[2])
+    axes[2].set_title('Returns v.s. SPY')
+    
     plt.show()
+    print('')
