@@ -62,16 +62,12 @@ def data_to_adj_mat(time_series_data, with_sharpe, cap_zero, r):
     return corr_mat
 
 def page_rank(adj_mat):
+    adj_mat = adj_mat/np.sum(np.abs(adj_mat), axis=0)
     n = len(adj_mat)
-    r_old = np.repeat(1 / n, n)
+    r = np.repeat(1 / n, n)
     for t in range(50):
-        r_new = np.repeat(1 / n, n)
-        for page in range(n):
-            for dest in adj_mat[page]:
-                r_new[dest] += r_old[page] / (len(adj_mat[page]))
-        r_new = r_new / np.sum(r_new)
-        r_old = r_new
-    return r_new
+        r = np.matmul(adj_mat, r)
+    return r
 
 def graph_part(adj_mat, k, kmeans_iters=50):
     def fit_kmeans(k, data, iters=50):

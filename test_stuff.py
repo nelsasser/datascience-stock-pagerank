@@ -27,25 +27,21 @@ if __name__ == '__main__':
         universe = set([t.strip() for t in open('./data/tickers.txt').readlines()])
 
         client = TestClient()
-        client.load(universe)  # put tickers you don't want to load in here to speed things up
 
         # reduced start and end date times
         start_date = datetime.datetime.strptime('2018-01-1', '%Y-%m-%d').date()
         end_date = datetime.datetime.strptime('2018-12-31', '%Y-%m-%d').date()
 
-    window = 100  # look at 5 days at a time
-    select = None  # number of stocks to randomly choose from universe for each backtest step, set to None to do all
-    ts = 5  # how many days to step forward each iteration
+    window = 100  # look at 100 days at a time
     pt = client.PeriodType.YEAR  # period to aggregate (matters for tda api)
     ft = client.FrequencyType.DAILY  # time scale we want to aggregate by
     f = client.Frequency.DAILY  # how much to aggregate
 
-    # basic heuristic function, calculates sharpe of x against y with a floor of 0 so everything stays positive
-    h_func = lambda x, y: sharpe(x, y)
-
     # asset to use as index when calculating metrics
     # using SPY since it tracks S&P 500 and is popular
     index_asset = 'SPY'
+
+    client.load(universe, index_asset)
 
     res = get_returns_for_all(  client=client,
                                 universe=universe,
@@ -56,8 +52,16 @@ if __name__ == '__main__':
                                 frequency_type=ft,
                                 frequency=f)
 
-    print(res)
+    #
+    adj_mat_with_sharpe = data_to_adj_mat(res, True, True, 0)
 
-    test = data_to_adj_mat(res, True, True, 0)
+    # we need an undirected graph for graph_part so we only look at correlation
+    adj_mat = data_to_adj_mat(res, False, True, 0)
 
-    print(test)
+    page_rank_res = page_rank(adj_mat_with_sharpe)
+    p = np.argsort(-page_rank_res)
+    print(np.array(list(universe))[p], page_rank_res[p])
+
+    graph_part_res = graph_part(adj_mat, 5)
+    for part_class in np.unique(graph_part_res):
+        print(np.array(list(universe))[np.where(graph_part_res == part_class)[0]])
