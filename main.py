@@ -49,12 +49,12 @@ def data_to_adj_mat(time_series_data, with_sharpe, cap_zero, r):
     # calc_cov_weight = lambda x, y: coint_johansen(np.array([x, y]).T, 0, 1).max_eig_stat
     # ts.coint(time_series_data[0], time_series_data[1])
 
-    corr_mat = np.corrcoef(time_series_data)
+    corr_mat = np.corrcoef(time_series_data, rowvar=False)
     corr_mat *= np.ones(corr_mat.shape)-np.diag(np.ones(corr_mat.shape[0]))
 
     if with_sharpe:
-        sharpe_values = np.array([sharpe(ts_data,r) for ts_data in time_series_data])
-        corr_mat *= sharpe_values[:, np.newaxis]
+        sharpe_values = sharpe(time_series_data, r)
+        corr_mat = (np.abs(corr_mat.T) * sharpe_values.to_numpy()).T
 
     if cap_zero:
         corr_mat = np.where(corr_mat >= 0, corr_mat, 0)
@@ -67,6 +67,7 @@ def page_rank(adj_mat):
     r = np.repeat(1 / n, n)
     for t in range(50):
         r = np.matmul(adj_mat, r)
+        r /= np.sum(np.abs(r))
     return r
 
 def graph_part(adj_mat, k, kmeans_iters=50):
@@ -187,7 +188,16 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
 
                 cp_dct = {x[0]: (x[1], x[2] * x[3]) for x in current_positions}
                 pnl = (filtered_pl['close'] - filtered_pl['ticker'].map(lambda x: cp_dct[x][0])) * filtered_pl['ticker'].map(lambda x: cp_dct[x][1])
+
+                # pnl.index = pd.MultiIndex.from_arrays([filtered_pl['ticker'].copy(), filtered_pl['datetime'].copy()], names=('ticker', 'datetime'))
+
+                # mask = np.ones(len(set(filtered_pl['ticker'])))
+                # v = np.abs(pnl.groupby('ticker').sum().index.map(lambda x: cp_dct[x][0]) * pnl.groupby('ticker').sum().index.map(lambda x: cp_dct[x][1]))
+                
+                # pnl.unstack
+
                 pnl.index = filtered_pl['datetime'].copy()
+
                 daily_pnl = pnl.groupby('datetime').sum().to_frame('pnl')
                     
                 balance += np.sum(daily_pnl['pnl'].to_numpy())
@@ -231,9 +241,9 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
         avg_index_returns = np.mean(ticker_returns[index_asset])
 
         # is it sacreligious to make the average return of a stock the risk free rate?
-        ticker_scores = heuristic(ticker_returns, 0.0)
+        ticker_scores = pd.Series(index=ticker_returns.columns, data=heuristic(ticker_returns))
 
-        select_ticker_indexes = (ticker_scores > 0.5) | (ticker_scores < -0.75)
+        select_ticker_indexes = np.abs(ticker_scores) > np.mean(np.abs(ticker_scores))
         select_ticker_weights = ticker_scores[select_ticker_indexes] / np.sum(ticker_scores[select_ticker_indexes])
         if len(select_ticker_weights) > 0:
             assert(abs(1 - np.sum(select_ticker_weights)) < 1e-6)
@@ -314,7 +324,7 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
 
 if __name__ == '__main__':
     # change this to false use test data
-    use_api = False
+    use_api = True
 
     if use_api:
         from api import TDAPI            
@@ -329,7 +339,7 @@ if __name__ == '__main__':
         client = TDAPI(api_key=api_key)
         client.login(driver_path=chrome_driver)
 
-        start_date = datetime.datetime.strptime('2020-01-01', '%Y-%m-%d').date()
+        start_date = datetime.datetime.strptime('2018-01-01', '%Y-%m-%d').date()
         end_date = datetime.datetime.strptime('2020-12-31', '%Y-%m-%d').date()
 
     else:
@@ -354,7 +364,9 @@ if __name__ == '__main__':
 
     # basic heuristic function, calculates sharpe of x against y with a floor of 0 so everything stays positive
     # h_func = lambda x, y: max(0, sharpe(x, y))
-    h_func = lambda x, y: sharpe(x, y)
+    def proprietary_sauce(ticker_returns):
+        M = data_to_adj_mat(ticker_returns, True, False, 0)
+        return page_rank(M)
 
     # asset to use as index when calculating metrics
     # using SPY since it tracks S&P 500 and is popular
@@ -370,7 +382,7 @@ if __name__ == '__main__':
                                             end_date=end_date, 
                                             window_size=window, 
                                             timestep=ts, 
-                                            heuristic=h_func, 
+                                            heuristic=proprietary_sauce, 
                                             period_type=pt, 
                                             frequency_type=ft, 
                                             frequency=f,
