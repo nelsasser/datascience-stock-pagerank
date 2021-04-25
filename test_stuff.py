@@ -65,3 +65,5 @@ if __name__ == '__main__':
     graph_part_res = graph_part(adj_mat, 5)
     for part_class in np.unique(graph_part_res):
         print(np.array(list(universe))[np.where(graph_part_res == part_class)[0]])
+
+    plot_partitionedGraph(graph_part_res,universe)

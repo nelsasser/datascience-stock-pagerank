@@ -1,5 +1,8 @@
 import datetime
 import json
+import networkx as nx
+import matplotlib.pyplot as plt
+
 
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 import statsmodels.tsa.stattools as ts
@@ -106,6 +109,23 @@ def graph_part(adj_mat, k, kmeans_iters=50):
 
     return classes
 
+def plot_partitionedGraph(classes, universe):
+    G = nx.Graph()
+    temp = list(universe)
+    for i in range(len(temp)):
+        G.add_node(i)
+    labels = dict()
+    for i in range(len(temp)):
+        labels[i] = temp[i]
+    np.random.seed(2021)
+    pos = nx.spring_layout(G)
+    nx.draw_networkx_nodes(G, pos, node_color=classes, cmap='Pastel1', node_size=500,alpha=.75)
+    nx.draw_networkx_labels(G, pos, labels, font_size=16)
+    plt.axis("off")
+    plt.show()
+
+
+
 def get_returns(asset_data, close_only=False):
     if close_only:
         reordered_data = asset_data[['close', 'datetime', 'ticker']].set_index(['ticker', 'datetime']).stack().unstack(level=0)
@@ -121,7 +141,7 @@ def get_returns_for_all(client, universe, start_date, end_date, window_size, per
     trade_date = start_date
     lookback_date = trade_date - datetime.timedelta(days=window_size)
 
-    current_data = get_ticker_data(client, universe, lookback_date, trade_date, period_type, frequency_type, frequency)
+    current_data = client.get_historical_price(universe, lookback_date, trade_date, period_type, frequency_type, frequency)
 
     ticker_returns = []
     for ticker in universe:
