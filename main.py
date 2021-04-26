@@ -115,15 +115,21 @@ def plot_partitionedGraph(classes, universe):
     temp = list(universe)
     for i in range(len(temp)):
         G.add_node(i)
+
+    for i in range(len(temp)):
+        for j in range(len(temp)):
+            G.add_edge(i,j)
     labels = dict()
     for i in range(len(temp)):
         labels[i] = temp[i]
-    np.random.seed(2021)
+    np.random.seed(4022)
     pos = nx.spring_layout(G)
-    nx.draw_networkx_nodes(G, pos, node_color=classes, cmap='Pastel1', node_size=500,alpha=.75)
+    nx.draw_networkx_nodes(G, pos, node_color=classes, cmap='Pastel1', node_size=500,alpha=.9)
+    nx.draw_networkx_edges(G, pos)
     nx.draw_networkx_labels(G, pos, labels, font_size=16)
     plt.axis("off")
     plt.show()
+
 
 
 
