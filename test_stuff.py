@@ -43,14 +43,13 @@ if __name__ == '__main__':
 
     client.load(universe, index_asset)
 
-    res = get_returns_for_all(  client=client,
-                                universe=universe,
-                                start_date=start_date + datetime.timedelta(days=window),
-                                end_date=end_date,
-                                window_size=window,
-                                period_type=pt,
-                                frequency_type=ft,
-                                frequency=f)
+    curr_data = client.get_historical_price(list(universe),
+                                            start_date=start_date + datetime.timedelta(days=window),
+                                            end_date=end_date,
+                                            period_type=pt,
+                                            frequency_type=ft,
+                                            frequency=f)
+    _, res = get_returns(curr_data)
 
     #
     adj_mat_with_sharpe = data_to_adj_mat(res, True, True, 0)
