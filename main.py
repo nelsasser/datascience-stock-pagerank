@@ -1,8 +1,7 @@
 import datetime
 import json
-import networkx as nx
+# import networkx as nx
 import matplotlib.pyplot as plt
-
 
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 import statsmodels.tsa.stattools as ts
@@ -209,15 +208,18 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
                 cp_dct = {x[0]: (x[1], x[2] * x[3]) for x in current_positions}
                 pnl = (filtered_pl['close'] - filtered_pl['ticker'].map(lambda x: cp_dct[x][0])) * filtered_pl['ticker'].map(lambda x: cp_dct[x][1])
 
-                # pnl.index = pd.MultiIndex.from_arrays([filtered_pl['ticker'].copy(), filtered_pl['datetime'].copy()], names=('ticker', 'datetime'))
+                pnl.index = pd.MultiIndex.from_arrays([filtered_pl['ticker'].copy(), filtered_pl['datetime'].copy()], names=('ticker', 'datetime'))
 
                 # mask = np.ones(len(set(filtered_pl['ticker'])))
                 # v = np.abs(pnl.groupby('ticker').sum().index.map(lambda x: cp_dct[x][0]) * pnl.groupby('ticker').sum().index.map(lambda x: cp_dct[x][1]))
                 
-                # pnl.unstack
+                # pnl = pnl.unstack(level=0)
+                # ppl = pnl / v
 
-                pnl.index = filtered_pl['datetime'].copy()
+                # # cut trades early if they have a current cumulative loss >= 10%
+                # pnl *= ~((~(ppl > -0.025).shift().fillna(True)).cumsum().astype(bool))
 
+                # pnl = pnl.stack()
                 daily_pnl = pnl.groupby('datetime').sum().to_frame('pnl')
                     
                 balance += np.sum(daily_pnl['pnl'].to_numpy())
@@ -359,7 +361,7 @@ if __name__ == '__main__':
         client = TDAPI(api_key=api_key)
         client.login(driver_path=chrome_driver)
 
-        start_date = datetime.datetime.strptime('2018-01-01', '%Y-%m-%d').date()
+        start_date = datetime.datetime.strptime('2012-01-01', '%Y-%m-%d').date()
         end_date = datetime.datetime.strptime('2020-12-31', '%Y-%m-%d').date()
 
     else:
@@ -380,7 +382,7 @@ if __name__ == '__main__':
     pt = client.PeriodType.YEAR         # period to aggregate (matters for tda api)
     ft = client.FrequencyType.DAILY     # time scale we want to aggregate by
     f = client.Frequency.DAILY          # how much to aggregate
-    alpha = 0.1                         # controls how much of our balance we allocate per timeframe
+    alpha = 0.2                         # controls how much of our balance we allocate per timeframe
 
     # basic heuristic function, calculates sharpe of x against y with a floor of 0 so everything stays positive
     # h_func = lambda x, y: max(0, sharpe(x, y))
@@ -421,8 +423,8 @@ if __name__ == '__main__':
     returns = np.array(returns)
     returns[np.where(np.isnan(returns))] = 0
 
-    p_returns = returns / 1_000_000
-
+    p_returns = daily_returns['returns'].fillna(0) / (daily_returns['returns'].shift().fillna(0).cumsum() + 1000000)
+    
     index_returns = get_returns(client.data[(client.data['ticker'] == index_asset) & \
                                                         (client.data['datetime'] >= days[0]) & \
                                                         (client.data['datetime'] <= days[-1] + datetime.timedelta(days=1))][['ticker', 'datetime', 'close']], True)[1][1:]
@@ -431,6 +433,7 @@ if __name__ == '__main__':
     index_returns = index_returns.set_index('datetime', drop=True)
 
     daily_returns['returns'] = p_returns
+    daily_returns['input_returns'] = returns / 1_000_000
     compare_returns = daily_returns.join(index_returns, how='inner', on='datetime')
 
     wins = []
@@ -461,12 +464,15 @@ if __name__ == '__main__':
     for i in range(5):
         print(f'  {i + 1}) {losses[i][0][0]} - {losses[i][0][1]} > {losses[i][1][1]} @ {losses[i][0][2]} = {(losses[i][1][1] - losses[i][0][1]) * losses[i][0][2] * losses[i][0][3]}')
     
-    print(f'Long/Short ratio {round(len(longs) / len(shorts), 2)} -- {len(longs)}/{len(shorts)}')
+    print(f'\nLong/Short ratio {round(len(longs) / len(shorts), 2)} -- {len(longs)}/{len(shorts)}')
     print(f'Long win %: {round(np.sum([l[0] == 1 for l in longs]) / len(longs), 2) * 100}%')
     print(f'Short win %: {round(np.sum([s[0] == 1 for s in shorts]) / len(shorts), 2) * 100}%')
     
     shrp = sharpe(compare_returns['returns'].to_numpy(), np.mean(compare_returns[index_asset].to_numpy()))
     print(f'\nSharpe: {shrp}')
+
+    shrp_0 = sharpe(compare_returns['returns'].to_numpy(), 0.0)
+    print(f'\nSharpe (0): {shrp_0}')
 
     B = beta(compare_returns['returns'].to_numpy(), compare_returns[index_asset].to_numpy())
     print(f'\nBeta: {B}')
@@ -475,12 +481,12 @@ if __name__ == '__main__':
     axes[0].plot(x, returns)
     axes[0].set_title('Daily Returns over Time')
     
-    axes[1].hist(returns)
+    axes[1].hist(returns, bins=100)
     axes[1].set_title('Histogram of Daily Returns')
     
-    compare_returns['returns'] = np.cumsum(compare_returns['returns'])
+    compare_returns['input_returns'] = np.cumsum(compare_returns['input_returns'])
     compare_returns[index_asset] = np.cumsum(compare_returns[index_asset])
-    compare_returns.plot(ax=axes[2])
+    compare_returns[['input_returns', index_asset]].plot(ax=axes[2])
     axes[2].set_title('Returns v.s. SPY')
     
     plt.show()
