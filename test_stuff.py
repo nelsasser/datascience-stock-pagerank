@@ -42,8 +42,9 @@ if __name__ == '__main__':
     index_asset = 'SPY'
 
     client.load(universe, index_asset)
+    universe_list = list(universe)
 
-    curr_data = client.get_historical_price(list(universe),
+    curr_data = client.get_historical_price(universe_list,
                                             start_date=start_date + datetime.timedelta(days=window),
                                             end_date=end_date,
                                             period_type=pt,
@@ -59,10 +60,10 @@ if __name__ == '__main__':
 
     page_rank_res = page_rank(adj_mat_with_sharpe)
     p = np.argsort(-page_rank_res)
-    print(np.array(list(universe))[p], page_rank_res[p])
+    print(np.array(universe_list)[p], page_rank_res[p])
 
     graph_part_res = graph_part(adj_mat, 5)
     for part_class in np.unique(graph_part_res):
-        print(np.array(list(universe))[np.where(graph_part_res == part_class)[0]])
+        print(np.array(universe_list)[np.where(graph_part_res == part_class)[0]])
 
-    plot_partitionedGraph(graph_part_res,universe)
+    plot_partitionedGraph(graph_part_res,universe_list,adj_mat)

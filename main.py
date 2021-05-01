@@ -1,6 +1,6 @@
 import datetime
 import json
-# import networkx as nx
+import networkx as nx
 import matplotlib.pyplot as plt
 
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
@@ -50,6 +50,17 @@ def beta(x, y):
 def data_to_adj_mat(time_series_data, with_sharpe, cap_zero, r):
     # calc_cov_weight = lambda x, y: coint_johansen(np.array([x, y]).T, 0, 1).max_eig_stat
     # ts.coint(time_series_data[0], time_series_data[1])
+    """Converts time series data into a 2d matrix of relationships between stocks
+
+        Args:
+            time_series_data (list): list of values of stock prices over time
+            with_sharpe (bool): boolean flag to incorporate the sharpe ratio
+            cap_zero (bool): boolean flag to cap the minimum value at zero
+            r (float): risk free rate
+
+        Returns:
+            2d list: adjacency matrix
+    """
 
     corr_mat = np.corrcoef(time_series_data, rowvar=False)
     corr_mat *= np.ones(corr_mat.shape)-np.diag(np.ones(corr_mat.shape[0]))
@@ -64,6 +75,14 @@ def data_to_adj_mat(time_series_data, with_sharpe, cap_zero, r):
     return corr_mat
 
 def page_rank(adj_mat):
+    """Runs the page rank algorithm on the graph of stock relationships
+
+        Args:
+            adj_mat (2d list): correlation values from one stock to another
+
+        Returns:
+            list: value/power of each stock
+    """
     adj_mat = adj_mat/np.sum(np.abs(adj_mat), axis=0)
     n = len(adj_mat)
     r = np.repeat(1 / n, n)
@@ -109,22 +128,37 @@ def graph_part(adj_mat, k, kmeans_iters=50):
 
     return classes
 
-def plot_partitionedGraph(classes, universe):
+def plot_partitionedGraph(classes, universe,adj_mat):
+    """Creates and plots a graph using networkx to show graph partitioning results and correlation via edge weights/colorings
+
+        Args:
+            classes (list): stock groups
+            universe (list): corresponding int index value to stock name
+            adj_mat (2d list): correlation values from one stock to another
+
+        Returns:
+            nothing
+    """
     G = nx.Graph()
-    temp = list(universe)
+    temp = sorted(universe)
     for i in range(len(temp)):
         G.add_node(i)
-
+    weights = []
+    edge_list =[]
     for i in range(len(temp)):
         for j in range(len(temp)):
             G.add_edge(i,j)
+            rgb = (1-adj_mat[i][j]**2,1-adj_mat[i][j]**2,1-adj_mat[i][j]**2)
+            weights.append(rgb)
+            edge_list.append((i,j))
+
     labels = dict()
     for i in range(len(temp)):
         labels[i] = temp[i]
     np.random.seed(4022)
     pos = nx.spring_layout(G)
     nx.draw_networkx_nodes(G, pos, node_color=classes, cmap='Pastel1', node_size=500,alpha=.9)
-    nx.draw_networkx_edges(G, pos)
+    nx.draw_networkx_edges(G, pos,edge_color=weights, edge_cmap=plt.cm.binary, edgelist=edge_list)
     nx.draw_networkx_labels(G, pos, labels, font_size=16)
     plt.axis("off")
     plt.show()
