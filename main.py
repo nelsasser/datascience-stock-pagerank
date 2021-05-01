@@ -73,7 +73,24 @@ def page_rank(adj_mat):
     return r
 
 def graph_part(adj_mat, k, kmeans_iters=50):
+    """
+    Creates 'k' groups of the graph with the adjacency matrix `adj_mat`.
+    We then run graph partitioning on the graph.
+
+    :param adj_mat: adjacency matrix
+    :param k: number of partitions
+    :param kmeans_iters: max iterations to run k-means
+    :return:
+    """
     def fit_kmeans(k, data, iters=50):
+        """
+        internal k-means function
+
+        :param k: number of groups to fund
+        :param data: np.ndarray with shape nxm: n data points m dimensions per data point
+        :param iters: max iters
+        :return:
+        """
         p = np.random.permutation(data.shape[0])
         centriods = data[p[:k]]
 
@@ -90,6 +107,7 @@ def graph_part(adj_mat, k, kmeans_iters=50):
             if iter_num < iters:
                 for m in range(k):
                     if np.sum(classes == m) != 0:
+                        # calc new centers
                         centriods[m] = np.dot((classes == m), data)
                         centriods[m] /= np.sum(classes == m)
 
