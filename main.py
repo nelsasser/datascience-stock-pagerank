@@ -53,7 +53,7 @@ def data_to_adj_mat(time_series_data, with_sharpe, cap_zero, r):
     """Converts time series data into a 2d matrix of relationships between stocks
 
         Args:
-            time_series_data (list): list of values of stock prices over time
+            time_series_data (pandas dataframe): list of values of stock prices over time
             with_sharpe (bool): boolean flag to incorporate the sharpe ratio
             cap_zero (bool): boolean flag to cap the minimum value at zero
             r (float): risk free rate
