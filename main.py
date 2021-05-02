@@ -271,6 +271,10 @@ def backtest(client, universe, index_asset, selection_size, start_date, end_date
         # is it sacreligious to make the average return of a stock the risk free rate?
         ticker_scores = pd.Series(index=ticker_returns.columns, data=heuristic(ticker_returns))
 
+        # ticker_scores = heuristic(ticker_returns)
+        # select_ticker_indexes = np.abs(ticker_scores) > 0.5
+        # select_ticker_weights = ticker_scores[select_ticker_indexes] / np.sum(np.abs(ticker_scores[select_ticker_indexes]))
+
         select_ticker_indexes = np.abs(ticker_scores) > np.mean(np.abs(ticker_scores))
         select_ticker_weights = ticker_scores[select_ticker_indexes] / np.sum(ticker_scores[select_ticker_indexes])
         if len(select_ticker_weights) > 0:
@@ -393,8 +397,7 @@ if __name__ == '__main__':
     # basic heuristic function, calculates sharpe of x against y with a floor of 0 so everything stays positive
     # h_func = lambda x, y: max(0, sharpe(x, y))
     def proprietary_sauce(ticker_returns):
-        M = data_to_adj_mat(ticker_returns, True, False, 0)
-        return page_rank(M)
+        return sharpe(ticker_returns, 0.0)
 
     # asset to use as index when calculating metrics
     # using SPY since it tracks S&P 500 and is popular
